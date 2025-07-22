@@ -1,0 +1,146 @@
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finger Drawing AI</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background-color: black; overflow: hidden; }
+    #wrapper {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    video, canvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    video {
+      transform: scaleX(-1);
+    }
+    canvas {
+      z-index: 1;
+    }
+    h1 {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: lime;
+      font-family: 'Courier New', monospace;
+      font-size: 24px;
+      z-index: 2;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrapper">
+    <h1>🖊️ Draw with Your Finger</h1>
+    <video id="webcam" autoplay playsinline muted></video>
+    <canvas id="draw"></canvas>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('draw');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let prevX = null;
+    let prevY = null;
+
+    function eraseAtPalmArea(ctx, landmarks) {
+      const xs = landmarks.map(p => (1 - p.x) * canvas.width);
+      const ys = landmarks.map(p => p.y * canvas.height);
+      const minX = Math.min(...xs) - 30;
+      const minY = Math.min(...ys) - 30;
+      const maxX = Math.max(...xs) + 30;
+      const maxY = Math.max(...ys) + 30;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.clearRect(minX, minY, maxX - minX, maxY - minY);
+      ctx.restore();
+    }
+
+    function isPalmOpen(landmarks) {
+      // Consider a palm open if all fingers are extended upward away from the wrist
+      const fingerTips = [8, 12, 16, 20]; // Exclude thumb for better reliability
+      const baseJoints = [5, 9, 13, 17];
+      return fingerTips.every((tip, i) => {
+        const base = baseJoints[i];
+        return landmarks[tip].y < landmarks[base].y && Math.abs(landmarks[tip].x - landmarks[base].x) < 0.1;
+      });
+    }
+
+    function draw(x, y) {
+      if (prevX !== null && prevY !== null) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'red';
+        ctx.beginPath();
+        ctx.moveTo(prevX, prevY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.restore();
+      }
+      prevX = x;
+      prevY = y;
+    }
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+
+    hands.onResults((results) => {
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+
+        if (isPalmOpen(landmarks)) {
+          eraseAtPalmArea(ctx, landmarks);
+          prevX = null;
+          prevY = null;
+        } else {
+          const indexFinger = landmarks[8];
+          const x = (1 - indexFinger.x) * canvas.width;
+          const y = indexFinger.y * canvas.height;
+          draw(x, y);
+        }
+      } else {
+        prevX = null;
+        prevY = null;
+      }
+    });
+
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({ image: video });
+      },
+      width: 1280,
+      height: 720
+    });
+
+    camera.start();
+  </script>
+</body>
+</html>
